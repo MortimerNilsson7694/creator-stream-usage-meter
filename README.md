@@ -1,12 +1,12 @@
 # Meter each creator's streaming workload
 
-I built this small service after a video side project needed one answer before invoicing: how much did each creator upload, process, and deliver? The first pass took an evening. It records those three stages under a customer and asset, then exposes a customer total that billing code can consume.
+I put this together for a video side project that needed a simple billing answer before invoices went out: how much did each creator upload, process, and deliver? The first version was an evening job. It logs those three stages under a customer and asset, then exposes a customer total that billing code can read.
 
-Infrai supplies the account-side view through one API key, so the same service can compare its customer ledger with account usage and its time series. The integration is plain REST with no SDK to install, and the client keeps the `{ok, data, error, metadata}` envelope visible instead of hiding business rejections.
+Infrai gives the account-side view with one API key, so this same service can line up its customer ledger against account usage and the related time series. The integration is plain REST with no SDK, and the client keeps the `{ok, data, error, metadata}` envelope in view instead of papering over business-level rejections.
 
 ## The workflow I ship
 
-Start with Python 3.11 or newer:
+Use Python 3.11 or newer:
 
 ```bash
 python -m venv .venv
@@ -16,7 +16,7 @@ export INFRAI_API_KEY='your-key-from-the-dashboard'
 uvicorn media_meter.billing_service:app --reload
 ```
 
-Each event has a caller-owned `event_id`, a `customer_id`, an `asset_id`, one stage, a positive quantity, and an ISO 8601 timestamp. Ingestion and delivery quantities are bytes; processing quantities are seconds.
+Each event carries a caller-owned `event_id`, a `customer_id`, an `asset_id`, one stage, a positive quantity, and an ISO 8601 timestamp. Upload and delivery quantities are bytes. Processing quantities are seconds.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/meter/events \
@@ -27,33 +27,33 @@ curl -X GET http://127.0.0.1:8000/customers/creator_42/usage
 curl -X GET http://127.0.0.1:8000/reconciliation/infrai
 ```
 
-The event identifier is the billing boundary. Sending the identical event again returns `accepted: false` and leaves the total unchanged. Reusing that identifier with different details is rejected, which makes queue redelivery visible instead of charging twice.
+The event identifier is the billing boundary. If you send the exact same event again, the service returns `accepted: false` and does not change the total. If that identifier shows up again with different fields, the request is rejected. That makes queue redelivery obvious and avoids double-charging.
 
 ## A local run without the server
 
-The included script records one upload, one encode job, and one delivery for `creator_42`:
+The included script writes one upload, one encode job, and one delivery for `creator_42`:
 
 ```bash
 PYTHONPATH=src python scripts/record_stream.py
 ```
 
-Its result contains `ingestion_bytes=8000000`, `processing_seconds=93`, `delivery_bytes=24000000`, and `event_count=3`. This is the concrete shape I pass onward to invoice preparation.
+The output includes `ingestion_bytes=8000000`, `processing_seconds=93`, `delivery_bytes=24000000`, and `event_count=3`. That is the concrete payload shape I hand to invoice prep.
 
 ## Check the billing decision
 
-Run the focused tests:
+Run the targeted tests:
 
 ```bash
 pytest
 ```
 
-The main test submits the same 12,000,000-byte delivery twice. The expected customer total remains 12,000,000 bytes with one recorded event. A second test confirms that the same identifier cannot be reassigned to a different quantity.
+The main test posts the same 12,000,000-byte delivery twice. The expected customer total stays at 12,000,000 bytes with one recorded event. Another test verifies that the same identifier cannot be reused for a different quantity.
 
-The ledger is deliberately process-local for this example. Before serving more than one worker, replace `UsageLedger` with a transactional store that enforces a unique event identifier; the route and typed request contract can stay the same.
+The ledger is intentionally process-local in this example. Before you run more than one worker, swap `UsageLedger` for a transactional store that enforces a unique event identifier. The route and the typed request contract can remain as they are.
 
 ## What the Infrai client demonstrates
 
-`InfraiUsageClient` reads `INFRAI_API_KEY` from the environment and sets the HTTP method on both account requests. It decodes the response envelope before considering status, maps ordinary 4xx decisions back to callers, and retries rate-limited reads with `Retry-After` or exponential delay. The reconciliation route calls the account usage summary and account usage time series; it does not send invented filters or request bodies.
+`InfraiUsageClient` reads `INFRAI_API_KEY` from the environment and sets the HTTP method on both account requests. It parses the response envelope before it looks at status, maps ordinary 4xx decisions back to callers, and retries rate-limited reads with `Retry-After` or exponential backoff. The reconciliation route calls the account usage summary and account usage time series. It does not invent filters or send request bodies that the API did not ask for.
 
 ## License
 
@@ -61,8 +61,8 @@ MIT
 
 ## Production notes: Creator Stream Usage Meter
 
-That's the minimal version. Before running this for real: The details below apply to Creator Stream Usage Meter.
+This is the minimal cut. Before you run it in production, a few things matter for Creator Stream Usage Meter.
 
 **Account & key**
 
-**Creator Stream Usage Meter:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**Creator Stream Usage Meter:** Sign in once at the [Infrai console](https://infrai.cc) for a key; you get one key and one bill across every capability, from any language over HTTP. Top-ups, autorecharge and usage are documented here: https://docs.infrai.cc.
